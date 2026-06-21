@@ -1,0 +1,77 @@
+#ifndef BME280_DEFS_H
+#define BME280_DEFS_H
+
+/* Based on BME280 Data Sheet Memory Map (pg 27) */
+#define BME280_CFG_ADDR_START	0xF2
+#define BME280_CFG_ADDR_END		0xF5
+#define BME280_DATA_ADDR_START	0xF7
+#define BME280_DATA_ADDR_END	0xFE
+
+/* ========== MEMORY MAP MACROS ========== */
+/* HUM_LSB */
+#define BME280_HUM_LSB_ADDR			0xFE
+
+/* HUM_MSB */
+#define BME280_HUM_MSB_ADDR			0xFD
+
+/* TEMP_XLSB */
+#define BME280_TEMP_XLSB_ADDR		0xFC
+#define BME280_TEMP_XLSB_Pos		4u
+#define BME280_TEMP_XLSB_Msk		(0x0Fu << BME280_TEMP_XLSB_Pos)
+
+/* TEMP_LSB */
+#define BME280_TEMP_LSB_ADDR		0xFB
+
+/* TEMP_MSB */
+#define BME280_TEMP_MSB_ADDR		0xFA
+
+/* PRESS_XLSB */
+#define BME280_PRESS_XLSB_ADDR		0xF9
+#define BME280_PRESS_XLSB_Pos		4u
+#define BME280_PRESS_XLSB_Msk		(0x0Fu << BME280_PRESS_XLSB_Pos)
+
+/* PRESS_LSB */
+#define BME280_PRESS_LSB_ADDR		0xF8
+
+/* PRESS_MSB */
+#define BME280_PRESS_MSB_ADDR		0xF7
+
+/* CONFIG */
+#define BME280_CONFIG_ADDR			0xF5
+#define BME280_CONFIG_T_SB_Pos		5u
+#define BME280_CONFIG_T_SB_Msk		(0x07u << BME280_CONFIG_T_SB_Pos)
+#define BME280_CONFIG_FILTER_Pos	2u
+#define BME280_CONFIG_FILTER_Msk	(0x07u << BME280_CONFIG_FILTER_Pos)
+#define BME280_CONFIG_SPI3W_EN_Pos	0u
+#define BME280_CONFIG_SPI3W_EN_Msk	(0x01u << BME208_CONFIG_SPI3W_EN_Pos)
+
+/* CTRL_MEAS */
+#define BME280_CTRL_MEAS_ADDR		0xF4
+#define BME280_CTRL_MEAS_OSRS_T_Pos 5u
+#define BME280_CTRL_MEAS_OSRS_T_Msk (0x07u << BME280_CTRL_MEAS_OSRS_T_Pos)
+#define BME280_CTRL_MEAS_OSRS_P_Pos 2u
+#define BME280_CTRL_MEAS_OSRS_P_Msk (0x07u << BME280_CTRL_MEAS_OSRS_P_Pos)
+#define BME280_CTRL_MEAS_MODE_Pos 	0u
+#define BME280_CTRL_MEAS_MODE_Msk 	(0x03u << BME280_CTRL_MEAS_MODE_Pos)
+
+/* STATUS */
+#define BME280_STATUS_ADDR			0xF3
+#define BME280_STATUS_MEASURING_Pos 3u
+#define BME280_STATUS_MEASURING_Msk (0x01u << BME280_STATUS_MEASURING_Pos)
+#define BME280_STATUS_IM_UPDATE_Pos	0u
+#define BME280_STATUS_IM_UPDATE_Msk	(0x01u << BME280_STATUS_IM_UPDATE_Pos)
+
+/* CTRL_HUM*/
+#define BME280_CTRL_HUM_ADDR		0xF2
+#define BME280_CTRL_HUM_OSRS_H_Pos	0u
+#define BME280_CTRL_HUM_OSRS_H_Msk	(0x07u << BME280_CTRL_HUM_OSRS_H_Pos)
+
+/* RESET */
+#define BME280_RESET_ADDR			0xE0	/* write only */
+#define BME280_RESET_CODE			0xB6	/* Reset code using the complete power-on-reset procedure */
+
+/* ID */
+#define BME280_ID_ADDR				0xD0	/* Chip ID: 0x60 which can be read as soon 
+										   	   as the device finished the power-on-reset */
+
+#endif // BME280_DEFS_H
