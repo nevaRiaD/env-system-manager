@@ -1,11 +1,19 @@
 #ifndef BME280_DEFS_H
 #define BME280_DEFS_H
 
+/* 7-bit I2C address, selected by the SDO pin */
+#define BME280_I2C_ADDR_SDO_LOW   0x76u   /* SDO = GND   → 0b1110110 */
+#define BME280_I2C_ADDR_SDO_HIGH  0x77u   /* SDO = VDDIO → 0b1110111 */
+
 /* Based on BME280 Data Sheet Memory Map (pg 27) */
-#define BME280_CFG_ADDR_START	0xF2
-#define BME280_CFG_ADDR_END		0xF5
-#define BME280_DATA_ADDR_START	0xF7
-#define BME280_DATA_ADDR_END	0xFE
+#define BME280_CFG_ADDR_START		0xF2
+#define BME280_CFG_ADDR_END			0xF5
+#define BME280_CFG_LEN				4		/* 4 bytes */
+
+#define BME280_DATA_ADDR_START		0xF7
+#define BME280_DATA_ADDR_END		0xFE
+#define BME280_DATA_LEN_HUM			8		/* 8 bytes: with humidity included */
+#define BME280_DATA_LEN_TEMP		6		/* 6 bytes: with humidity not included */
 
 /* ========== MEMORY MAP MACROS ========== */
 /* HUM_LSB */

@@ -2,7 +2,9 @@
 #define BME280_H
 
 #include "bme280_defs.h"
+#include "stm32f4xx_hal_i2c.h"
 #include <stdint.h>
+#include <stdbool.h>
 
 /**
  * @brief Contains config data from memory map for bme280
@@ -11,6 +13,8 @@
  * and any constraints on its lifecycle.
  */
 typedef struct bme280_cfg {
+    /* ===== MEMORY MAP CONFIG ===== */
+
     /* Mode Config
      *
      * 0b00:        Sleep Mode  - No measurements performed and
@@ -33,9 +37,9 @@ typedef struct bme280_cfg {
      * 
      * Note: Increasing oversampling increases latency
      */
-    uint8_t os_hum_cfg;     /* Controls oversampling for humidity*/
-    uint8_t os_pres_cfg;    /* Controls oversampling for pressure */   
-    uint8_t os_temp_cfg;    /* Controls oversampling for temperature */
+    uint8_t os_hum_cfg;         /* Controls oversampling for humidity*/
+    uint8_t os_pres_cfg;        /* Controls oversampling for pressure */   
+    uint8_t os_temp_cfg;        /* Controls oversampling for temperature */
 
     /* t_sb Config
      * 0b000: 0.5 ms
@@ -47,7 +51,7 @@ typedef struct bme280_cfg {
      * 0b110: 10 ms
      * 0b111: 20 ms
      */
-    uint8_t t_sb;           /* Controls inactive duration for t_standby*/
+    uint8_t t_sb;               /* Controls inactive duration for t_standby*/
 
     /* Filter Config
      *
@@ -57,9 +61,16 @@ typedef struct bme280_cfg {
      * 0b011: Filter Coefficient = 8
      * 0b100: Filter Coefficient = 16
      */
-    uint8_t filter;         /* Controls time constant of the IIR filter */
+    uint8_t filter;             /* Controls time constant of the IIR filter */
 
-    uint8_t spi_enabled;    /* Enables 3-wire SPI interface when set to ‘1’ */
+    bool spi_enabled;        /* Enables 3-wire SPI interface when set to ‘1’ */
+    
+    /* ===== USER CONFIG ===== */
+
+    bool hum_enabled;        /* Enables humidity; by default temp/pressure
+                                   are enabled but not humidity */
+    
+    I2C_HandleTypeDef *hi2c;    /* Handle for STM32 HAL H2C */
 } bme280_cfg;
 
 /**
@@ -73,7 +84,8 @@ typedef struct bme280_data {
     int32_t humidity;       /* addr: 0xFD, bit-format: 16 bits */
 } bme280_data;
 
+int bme280_init(bme280_cfg *cfg, I2C_HandleTypeDef *hi2c);
 int bme280_read_cfg(bme280_cfg *cfg);
-int bme280_read_data(bme280_data *data);
+int bme280_read_data(bme280_data *data, const bme280_cfg cfg)
 
 #endif // BME280_H
