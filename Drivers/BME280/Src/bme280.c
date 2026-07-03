@@ -86,7 +86,6 @@ int bme280_i2c_read_cfg(bme280_cfg *cfg)
 
 int bme280_write_cfg(bme280_cfg *cfg)
 {
-  // ctrl_meas ctrl_hum
   uint8_t ctrl_hum = cfg->os_hum_cfg & BME280_CTRL_HUM_OSRS_H_Msk;
   uint8_t ctrl_meas = ((cfg->os_temp_cfg << BME280_CTRL_MEAS_OSRS_T_Pos) & BME280_CTRL_MEAS_OSRS_T_Msk) |
                       ((cfg->os_pres_cfg << BME280_CTRL_MEAS_OSRS_P_Pos) & BME280_CTRL_MEAS_OSRS_P_Msk) |
