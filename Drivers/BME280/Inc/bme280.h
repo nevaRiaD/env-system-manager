@@ -2,9 +2,72 @@
 #define BME280_H
 
 #include "bme280_defs.h"
-#include "stm32f4xx_hal_i2c.h"
+#include "stm32f4xx_hal.h"
 #include <stdint.h>
 #include <stdbool.h>
+
+/* ========== ENUMS ========== */
+typedef enum {
+  BME280_FILTER_COEFF_OFF = 0b000,
+  BME280_FILTER_COEFF_2   = 0b001,
+  BME280_FILTER_COEFF_4   = 0b010,
+  BME280_FILTER_COEFF_8   = 0b011,
+  BME280_FILTER_COEFF_16  = 0b100,
+} bme280_filter_t;
+
+typedef enum {
+  BME280_STANDBY_0_5_MS   = 0b000,
+  BME280_STANDBY_62_5_MS  = 0b001,
+  BME280_STANDBY_125_MS   = 0b010,
+  BME280_STANDBY_250_MS   = 0b011,
+  BME280_STANDBY_500_MS   = 0b100,
+  BME280_STANDBY_1000_MS  = 0b101,
+  BME280_STANDBY_10_MS    = 0b110,
+  BME280_STANDBY_20_MS    = 0b111,
+} bme280_standby_t;
+
+typedef enum {
+  BME280_MODE_SLEEP_TO_NORMAL = 0b11,
+  BME280_MODE_SLEEP_TO_FORCED = 0b01,
+  BME280_MODE_FORCED_TO_SLEEP = 0b01,
+  BME280_MODE_NORMAL_TO_SLEEP = 0b00,
+} bme280_mode_transition_cmds_t;
+
+typedef enum {
+  BME280_MODE_SLEEP  = 0b00,
+  BME280_MODE_FORCED = 0b01,
+  BME280_MODE_NORMAL = 0b11,
+} bme280_mode_t;
+
+typedef enum {
+  BME280_TEMPERATURE_OS_SKIP = 0b000,
+  BME280_TEMPERATURE_OS_1    = 0b001,
+  BME280_TEMPERATURE_OS_2    = 0b010,
+  BME280_TEMPERATURE_OS_4    = 0b011,
+  BME280_TEMPERATURE_OS_8    = 0b100,
+  BME280_TEMPERATURE_OS_16   = 0b101,
+} bme280_osrs_t_t;
+
+typedef enum {
+  BME280_PRESSURE_OS_SKIP = 0b000,
+  BME280_PRESSURE_OS_1    = 0b001,
+  BME280_PRESSURE_OS_2    = 0b010,
+  BME280_PRESSURE_OS_4    = 0b011,
+  BME280_PRESSURE_OS_8    = 0b100,
+  BME280_PRESSURE_OS_16   = 0b101,
+} bme280_osrs_p_t;
+
+typedef enum {
+  BME280_HUMIDITY_OS_SKIP = 0b000,
+  BME280_HUMIDITY_OS_1    = 0b001,
+  BME280_HUMIDITY_OS_2    = 0b010,
+  BME280_HUMIDITY_OS_4    = 0b011,
+  BME280_HUMIDITY_OS_8    = 0b100,
+  BME280_HUMIDITY_OS_16   = 0b101,
+} bme280_osrs_h_t;
+
+
+/* ========== STRUCTS ========== */
 
 /**
  * @brief Contains config data from memory map for bme280
@@ -66,9 +129,6 @@ typedef struct bme280_cfg {
   bool spi_enabled; /* Enables 3-wire SPI interface when set to ‘1’ */
   
   /* ===== USER CONFIG ===== */
-
-  bool hum_enabled;  /* Enables humidity; by default temp/pressure
-                        are enabled but not humidity */
   
   I2C_HandleTypeDef *hi2c;  /* Handle for STM32 HAL H2C */
   uint16_t i2c_address;     /* Select based SDO_LOW or SDO_HIGH */
@@ -85,17 +145,10 @@ typedef struct bme280_data {
   int32_t humidity;       /* addr: 0xFD, bit-format: 16 bits */
 } bme280_data;
 
-typedef enum {
-  sleep_mode = 0,
-  forced_mode = 1,
-  normal_mode = 3,
-} mode_t;
-
 int bme280_init(bme280_cfg *cfg, I2C_HandleTypeDef *hi2c);
-int bme280_read_data(bme280_data *data, const bme280_cfg cfg);
 int bme280_read_cfg(bme280_cfg *cfg);
+int bme280_read_data(bme280_data *data, bme280_cfg *cfg);
+int bme280_set_mode(bme280_cfg *cfg, uint8_t target_mode);
 int bme280_write_cfg(bme280_cfg *cfg);
-
-int bme280_set_mode(cfg, mode);
 
 #endif // BME280_H
