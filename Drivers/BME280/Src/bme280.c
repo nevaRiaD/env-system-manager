@@ -360,11 +360,14 @@ static bme280_status_t bme280_wait_idle(bme280_cfg *cfg)
 {
   uint8_t status;
   for (uint16_t i = 0; i < BME280_MEAS_TIMEOUT_MS; i++) {
-    if (bme280_i2c_read_reg(BME280_STATUS_ADDR, &status, 1, cfg))
+    if (bme280_i2c_read_reg(BME280_STATUS_ADDR, &status, 1, cfg)) {
       return BME280_ERROR_I2C_READ;
+    }
 
-    if (!(status & BME280_STATUS_MEASURING_Msk))
+    if (!(status & BME280_STATUS_MEASURING_Msk)) {
       return BME280_STATUS_CODE_OK;  /* idle -> done */
+    }
+      
 
     HAL_Delay(1);
   }
