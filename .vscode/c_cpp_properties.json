@@ -1,9 +1,42 @@
 {
     "configurations": [
         {
-            "name": "STM32",
+            "name": "Win32",
             "compileCommands": "${workspaceFolder}/build/Debug/compile_commands.json",
-            "intelliSenseMode": "linux-gcc-x64",
+            "includePath": [
+                "${workspaceFolder}/Core/Inc",
+                "${workspaceFolder}/Drivers/BME280/Inc",
+                "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc",
+                "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy",
+                "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
+                "${workspaceFolder}/Drivers/CMSIS/Include"
+            ],
+            "defines": [
+                "USE_HAL_DRIVER",
+                "STM32F446xx",
+                "DEBUG"
+            ],
+            "intelliSenseMode": "windows-gcc-arm",
+            "cStandard": "c17",
+            "cppStandard": "gnu++17"
+        },
+        {
+            "name": "Linux",
+            "compileCommands": "${workspaceFolder}/build/Debug/compile_commands.json",
+            "includePath": [
+                "${workspaceFolder}/Core/Inc",
+                "${workspaceFolder}/Drivers/BME280/Inc",
+                "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc",
+                "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy",
+                "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
+                "${workspaceFolder}/Drivers/CMSIS/Include"
+            ],
+            "defines": [
+                "USE_HAL_DRIVER",
+                "STM32F446xx",
+                "DEBUG"
+            ],
+            "intelliSenseMode": "linux-gcc-arm",
             "cStandard": "c17",
             "cppStandard": "gnu++17"
         }

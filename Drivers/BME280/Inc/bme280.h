@@ -7,15 +7,15 @@
 #include <stdbool.h>
 
 /**
- * @brief TODO
+ * @brief Initializes dev struct, cfg, and calibration data
  * 
- * @param[in] cfg : TODO
- * @param[in] hi2c : Attachs I2C handle to cfg
+ * @param[out] dev : Device handle for BME280
+ * @param[in] intf : Enum to select communication SPI or I2C
+ * @param[in] h_intf : Pointer to insert handle for SPI or I2C
  * 
  * @return Result of execution status
- * @retval 
  */
-bme280_status_t bme280_init(bme280_cfg *cfg, I2C_HandleTypeDef *hi2c);
+bme280_status_t bme280_dev_init(bme280_dev *dev, bme280_intf_t intf, void *h_intf);
 
 /**
  * @brief TODO
@@ -24,7 +24,7 @@ bme280_status_t bme280_init(bme280_cfg *cfg, I2C_HandleTypeDef *hi2c);
  * 
  * @return Result of execution status
  */
-bme280_status_t bme280_read_cfg(bme280_cfg *cfg);
+bme280_status_t bme280_read_cfg(bme280_dev *dev);
 
 /**
  * @brief Reads data for humidity, temp, and pressure
@@ -34,7 +34,7 @@ bme280_status_t bme280_read_cfg(bme280_cfg *cfg);
  * 
  * @return Result of execution status
  */
-bme280_status_t bme280_read_data(bme280_data *data, bme280_cfg *cfg);
+bme280_status_t bme280_read_data(bme280_dev *dev, bme280_data *data);
 
 /**
  * @brief Sets mode for BME280
@@ -44,6 +44,6 @@ bme280_status_t bme280_read_data(bme280_data *data, bme280_cfg *cfg);
  * 
  * @return Result of execution status
  */
-bme280_status_t bme280_set_mode(bme280_cfg *cfg, uint8_t target_mode);
+bme280_status_t bme280_set_mode(bme280_dev *dev, uint8_t target_mode);
 
 #endif // BME280_H
