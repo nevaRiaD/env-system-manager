@@ -1,3 +1,0 @@
-TODO:
-
-- Check if other functions are redefining bme280_status_t, if so REMOVE

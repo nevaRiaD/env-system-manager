@@ -6,6 +6,9 @@
 
 #define BME280_MEAS_TIMEOUT_MS		  150
 
+/* Default mode when bme280_dev_init is called */
+#define BME280_MODE_DEFAULT         BME280_MODE_SLEEP
+
 /* 7-bit I2C address, selected by the SDO pin */
 #define BME280_I2C_ADDR_SDO_LOW     0x76u   /* SDO = GND   → 0b1110110 */
 #define BME280_I2C_ADDR_SDO_HIGH    0x77u   /* SDO = VDDIO → 0b1110111 */
@@ -24,7 +27,7 @@
 #define BME280_C_DATA1_ADDR_END     0xA1
 #define BME280_C_DATA1_BUF_SIZE     26u     /* 26 bytes */
 #define BME280_C_DATA2_ADDR_START   0xE1
-#define BME280_C_DATA2_ADDR_END     0xE6
+#define BME280_C_DATA2_ADDR_END     0xE7
 #define BME280_C_DATA2_BUF_SIZE     7u      /* 7 bytes */
 
 #define BME280_DIG_H4_LSB_Pos       0
@@ -141,16 +144,12 @@ typedef enum {
 } bme280_standby_t;
 
 typedef enum {
-  BME280_MODE_SLEEP_TO_NORMAL = 0b11,
-  BME280_MODE_SLEEP_TO_FORCED = 0b01,
-  BME280_MODE_FORCED_TO_SLEEP = 0b01,
-  BME280_MODE_NORMAL_TO_SLEEP = 0b00,
-} bme280_mode_transition_cmds_t;
-
-typedef enum {
   BME280_MODE_SLEEP  = 0b00,
   BME280_MODE_FORCED = 0b01,
   BME280_MODE_NORMAL = 0b11,
+
+  /* Alternative value of forced mode */
+  BME280_MODE_FORCED_ALT = 0b10,
 } bme280_mode_t;
 
 typedef enum {
@@ -193,14 +192,15 @@ typedef enum {
   BME280_STATUS_CODE_OK        =  0,
   BME280_ERROR_NULL_PTR        = -1,
   BME280_ERROR_INVALID_LEN     = -2,
-  BME280_ERROR_I2C_READ        = -3,
-  BME280_ERROR_I2C_WRITE       = -4,
+  BME280_ERROR_INTF_READ       = -3,
+  BME280_ERROR_INTF_WRITE      = -4,
   BME280_ERROR_CHIP_ID         = -5,
   BME280_ERROR_TIMEOUT         = -6,
   BME280_ERROR_TEMP_REQUIRED   = -7,
   BME280_ERROR_SPI_NOT_ENABLED = -8,
   BME280_ERROR_I2C_NOT_ENABLED = -9,
   BME280_ERROR_INTF_REQUIRED   = -10,
+  BME280_ERROR_MODE_UNKNOWN    = -11,
 } bme280_status_t;
 
 /* ========== STRUCTS ========== */
@@ -220,6 +220,9 @@ typedef struct {
   uint16_t intf_addr;
 } bme280_intf_handle;
 
+/* Forward declaration of bme280_dev */
+typedef struct bme280_dev bme280_dev;
+
 /**
  * @brief Interface function pointer
  */
@@ -228,7 +231,7 @@ typedef int8_t (*bme280_intf_fptr_t)(bme280_dev *dev, uint16_t memAddress, uint8
 /**
  * @brief Delay function pointer
  */
-typedef bme280_status_t (*bme280_delay_fptr_t)(uint32_t delay_ms);
+typedef void (*bme280_delay_fptr_t)(uint32_t delay_ms);
 
 /**
  * @brief Calibration data
@@ -278,7 +281,7 @@ typedef struct bme280_cfg {
    *                            an active measurement period and
    *                            an inactive measurement period.
    */
-  uint8_t mode; /* Power Settings for mode */
+  // uint8_t mode; /* Power Settings for mode */
 
   /* Oversampling Config
    * 0b000:  Skipped (output set to 0x80000)
@@ -290,9 +293,9 @@ typedef struct bme280_cfg {
    * 
    * Note: Increasing oversampling increases latency
    */
-  uint8_t os_hum_cfg;   /* Controls oversampling for humidity */
-  uint8_t os_pres_cfg;  /* Controls oversampling for pressure */   
-  uint8_t os_temp_cfg;  /* Controls oversampling for temperature */
+  uint8_t osrs_h;   /* Controls oversampling for humidity */
+  uint8_t osrs_p;  /* Controls oversampling for pressure */   
+  uint8_t osrs_t;  /* Controls oversampling for temperature */
 
   /* t_sb Config
    * 0b000: 0.5 ms
@@ -336,9 +339,6 @@ typedef struct bme280_dev {
   /* Chip ID */
   uint8_t chip_id;
 
-  /* Device ID */
-  uint8_t dev_id;
-
   /* SPI/I2C Interface handle */
   bme280_intf_handle intf_handle;
 
@@ -349,10 +349,10 @@ typedef struct bme280_dev {
   bme280_intf_fptr_t write;
 
   /* Delay function pointer */
-  bme280_delay_fptr_t delay_ms;
+  bme280_delay_fptr_t delay;
 
   /* Calibration data */
-  bme280_calib_data *calib_data;
+  bme280_calib_data calib_data;
 
   /* Sensor config */
   bme280_cfg cfg;

@@ -5,7 +5,6 @@
 /* static function prototypes */
 static bme280_status_t bme280_read_calib_data(bme280_dev *dev);
 static bme280_status_t bme280_cfg_init(bme280_dev *dev);
-static bme280_status_t bme280_read_cfg(bme280_dev *dev);
 static bme280_status_t bme280_write_cfg(bme280_dev *dev);
 static bme280_status_t bme280_read_id(bme280_dev *dev);
 static bme280_status_t bme280_wait_idle(bme280_dev *dev);
@@ -22,7 +21,7 @@ static int8_t bme280_i2c_write_reg(bme280_dev *dev, uint16_t memAddress, uint8_t
 
 /* ========== PUBLIC FUNCTION DEFINITIONS ========== */
 
-bme280_status_t bme280_dev_init(bme280_dev *dev, bme280_intf_t intf, void *intf_handle)
+bme280_status_t bme280_dev_init(bme280_dev *dev, bme280_intf_t intf_type, void *intf_handle, bme280_mode_t mode)
 {
   /* Return if pointer is null */
   if (dev == NULL || intf_handle == NULL) {
@@ -30,11 +29,11 @@ bme280_status_t bme280_dev_init(bme280_dev *dev, bme280_intf_t intf, void *intf_
   }
 
   /* Append function pointers */
-  switch(intf)
+  switch(intf_type)
   {
     case BME280_SPI_ENABLED:
 #ifdef HAL_SPI_MODULE_ENABLED
-      dev->intf_handle.intf = intf;
+      dev->intf_handle.intf_type = intf_type;
       dev->intf_handle.hspi = intf_handle;
       dev->read = NULL; /* add functions for spi read */
       dev->write = NULL; /* add functions for spi write */
@@ -45,11 +44,13 @@ bme280_status_t bme280_dev_init(bme280_dev *dev, bme280_intf_t intf, void *intf_
       break;
     case BME280_I2C_ENABLED:
 #ifdef HAL_I2C_MODULE_ENABLED
-      dev->intf_handle.intf_type = intf;
+      dev->intf_handle.intf_type = intf_type;
       dev->intf_handle.hi2c = intf_handle;
       dev->read = bme280_i2c_read_reg;
       dev->write = bme280_i2c_write_reg;
-      dev->intf_handle.intf_addr = BME280_I2C_ADDR_SDO_LOW;
+
+      /* SDO->GND */
+      dev->intf_handle.intf_addr = (BME280_I2C_ADDR_SDO_LOW << 1); /* HAL_I2C expects 7-bit address left shift 1 */
 #else /* I2C not enabled */
       return BME280_ERROR_I2C_NOT_ENABLED;
 #endif
@@ -57,6 +58,9 @@ bme280_status_t bme280_dev_init(bme280_dev *dev, bme280_intf_t intf, void *intf_
     default:
       return BME280_ERROR_INTF_REQUIRED;
   }
+
+  /* Assign delay function pointer */
+  dev->delay = HAL_Delay;
 
   /* Read chip-id */
   bme280_status_t status = bme280_read_id(dev);
@@ -75,29 +79,13 @@ bme280_status_t bme280_dev_init(bme280_dev *dev, bme280_intf_t intf, void *intf_
   if (status != BME280_STATUS_CODE_OK) {
     return status;
   }
-}
 
-/**
- * @brief Initializes default values for cfg
- * 
- * @param[in] dev : Access cfg struct pointer
- * 
- * @return Result of execution status
- */
-static bme280_status_t bme280_cfg_init(bme280_dev *dev)
-{
-  /* Set default cfg values */
-  dev->cfg = (bme280_cfg){
-    .mode        = BME280_MODE_NORMAL,
-    .os_hum_cfg  = BME280_HUMIDITY_OS_1,
-    .os_pres_cfg = BME280_PRESSURE_OS_1,
-    .os_temp_cfg = BME280_TEMPERATURE_OS_1,
-    .t_sb        = BME280_STANDBY_500_MS,
-    .filter      = BME280_FILTER_COEFF_2,
-  };
+  /* Checks if mode is normal, if not then set to sleep since setting to
+   * to forced would put BME280 device to sleep after anyway. */
+  bme280_mode_t target_mode = (mode == BME280_MODE_NORMAL) ? BME280_MODE_NORMAL : BME280_MODE_SLEEP;
 
-  /* Write cfg to BME280*/
-  bme280_status_t status = bme280_write_cfg(dev);
+  /* Set mode */
+  status = bme280_set_mode(dev, target_mode);
   if (status != BME280_STATUS_CODE_OK) {
     return status;
   }
@@ -105,10 +93,54 @@ static bme280_status_t bme280_cfg_init(bme280_dev *dev)
   return BME280_STATUS_CODE_OK;
 }
 
+
+bme280_status_t bme280_read_cfg(bme280_dev *dev)
+{
+  /* 0xF2 -> 0xF5 , 4 bytes */
+  uint8_t raw[BME280_CFG_LEN];
+  if (dev->read(dev, BME280_CFG_ADDR_START, raw, BME280_CFG_LEN)) {
+    return BME280_ERROR_INTF_READ; // I2C read error
+  }
+
+  /* raw[0] = ctrl_hum */
+  dev->cfg.osrs_h  = (raw[0] & BME280_CTRL_HUM_OSRS_H_Msk) >> 
+                      BME280_CTRL_HUM_OSRS_H_Pos;
+
+  /* raw[1] = status - nothing for cfg */
+
+  /* raw[2] = ctrl_meas */
+  /* current mode = (raw[2] & BME280_CTRL_MEAS_MODE_Msk) >> 
+                      BME280_CTRL_MEAS_MODE_Pos; */
+  dev->cfg.osrs_p = (raw[2] & BME280_CTRL_MEAS_OSRS_P_Msk) >> 
+                      BME280_CTRL_MEAS_OSRS_P_Pos;
+  dev->cfg.osrs_t = (raw[2] & BME280_CTRL_MEAS_OSRS_T_Msk) >> 
+                      BME280_CTRL_MEAS_OSRS_T_Pos;
+
+  /* raw[3] = config */
+  dev->cfg.filter      = (raw[3] & BME280_CONFIG_FILTER_Msk) >> 
+                      BME280_CONFIG_FILTER_Pos;
+  dev->cfg.t_sb        = (raw[3] & BME280_CONFIG_T_SB_Msk) >>
+                      BME280_CONFIG_T_SB_Pos;
+
+  return BME280_STATUS_CODE_OK;
+}
+
+
 bme280_status_t bme280_read_data(bme280_dev *dev, bme280_data *data)
 {
+  if (dev == NULL || data == NULL) {
+    return BME280_ERROR_NULL_PTR;
+  }
+
+  /* check current mode and collect data accordingly */
+  bme280_mode_t current_mode;
+  bme280_status_t status = bme280_read_mode(dev, &current_mode);
+  if (status != BME280_STATUS_CODE_OK) {
+    return status;
+  }
+
   uint8_t raw[BME280_DATA_LEN_HUM];
-  uint16_t data_len = (dev->cfg.os_hum_cfg != BME280_HUMIDITY_OS_SKIP) ?
+  uint16_t data_len = (dev->cfg.osrs_h != BME280_HUMIDITY_OS_SKIP) ?
                        BME280_DATA_LEN_HUM : BME280_DATA_LEN_TEMP;
   
   /* adc values read from registers */
@@ -117,14 +149,49 @@ bme280_status_t bme280_read_data(bme280_dev *dev, bme280_data *data)
   int32_t adc_p;
   int32_t adc_h;
 
+  /* Data collection differs upon mode */
+  switch (current_mode) {
+    /* Convert to forced measurement to collect data once */
+    case BME280_MODE_SLEEP:
+      status = bme280_set_mode(dev, BME280_MODE_FORCED);
+      if (status != BME280_STATUS_CODE_OK) {
+        return status;
+      }
+
+      /* Wait out current forced mode until it sets to sleep */
+      status = bme280_wait_idle(dev);
+      if (status != BME280_STATUS_CODE_OK) {
+        return status;
+      }
+
+      break;
+
+    /* Since it's already in forced mode, it collects once so wait */
+    case BME280_MODE_FORCED_ALT:
+    case BME280_MODE_FORCED:
+      /* Conversion in flight, collect data once it completes */
+      status = bme280_wait_idle(dev);
+      if (status != BME280_STATUS_CODE_OK) {
+        return status;
+      }
+      break;
+
+    /* Can datareadout freely */
+    case BME280_MODE_NORMAL:
+      /* Can always read registers when needed */
+      break;
+    default:
+      return BME280_ERROR_MODE_UNKNOWN;
+  }
+  
   if (dev->read(dev, BME280_DATA_ADDR_START, raw, data_len)) {
-    return BME280_ERROR_I2C_READ; // I2C read error
+    return BME280_ERROR_INTF_READ; // I2C read error
   }
 
   /* Check if temperature is enabled, cannot calculate 
    * humidity and pressure without t_fine. 
   */
-  if (dev->cfg.os_temp_cfg == BME280_TEMPERATURE_OS_SKIP) {
+  if (dev->cfg.osrs_t == BME280_TEMPERATURE_OS_SKIP) {
     data->temperature = INT32_MIN;
     data->pressure = INT32_MIN;
     data->humidity = INT32_MIN;
@@ -138,25 +205,25 @@ bme280_status_t bme280_read_data(bme280_dev *dev, bme280_data *data)
           (raw[5] >> BME280_TEMP_XLSB_Pos);
 
   /* Calculates t_fine and temperature */
-  data->temperature = bme280_compensate_T_int32(dev->calib_data, &t_fine, adc_t);
+  data->temperature = bme280_compensate_T_int32(&(dev->calib_data), &t_fine, adc_t);
   
   /* Check if pressure is enabled */
-  if (dev->cfg.os_pres_cfg != BME280_PRESSURE_OS_SKIP) {
+  if (dev->cfg.osrs_p != BME280_PRESSURE_OS_SKIP) {
     /* raw[0]=press_msb raw[1]=press_lsb raw[2]=press_xlsb<7:4> */
     adc_p = ((uint32_t)raw[0] << BME280_PRESS_MSB_SHIFT) |
             ((uint32_t)raw[1] << BME280_PRESS_LSB_SHIFT) |
             (raw[2] >> BME280_PRESS_XLSB_Pos);
-    data->pressure = bme280_compensate_P_int32(dev->calib_data, t_fine, adc_p);
+    data->pressure = bme280_compensate_P_int32(&(dev->calib_data), t_fine, adc_p);
   }
   else { /* pressure not enabled */
     data->pressure = INT32_MIN;
   }
 
-  // Check if humidity is enabled
-  if (dev->cfg.os_hum_cfg != BME280_HUMIDITY_OS_SKIP) {
+  /* Check if humidity is enabled */
+  if (dev->cfg.osrs_h != BME280_HUMIDITY_OS_SKIP) {
     /* raw[6]=hum_msb raw[7]=hum_lsb */
     adc_h = ((uint32_t)raw[6] << BME280_HUM_MSB_SHIFT) | raw[7];
-    data->humidity = bme280_compensate_H_int32(dev->calib_data, t_fine, adc_h);
+    data->humidity = bme280_compensate_H_int32(&(dev->calib_data), t_fine, adc_h);
   }
   else {  /* humidity not enabled */
     data->humidity = INT32_MIN;
@@ -165,68 +232,103 @@ bme280_status_t bme280_read_data(bme280_dev *dev, bme280_data *data)
   return BME280_STATUS_CODE_OK;
 }
 
-bme280_status_t bme280_set_mode(bme280_dev *dev, uint8_t target_mode)
+
+bme280_status_t bme280_read_mode(bme280_dev *dev, bme280_mode_t *current_mode)
 {
+  /* Check if pointer is null */
+  if (dev == NULL || current_mode == NULL) {
+    return BME280_ERROR_NULL_PTR;
+  }
+
+  uint8_t reg;
+
+  /* Reads ctrl_meas reg and record value at reg */
+  if (dev->read(dev, BME280_CTRL_MEAS_ADDR, &reg, 1)) {
+    return BME280_ERROR_INTF_READ;
+  }
+
+  /* Use ctrl_meas mask to grab mode value */
+  uint8_t mode = (reg & BME280_CTRL_MEAS_MODE_Msk) >> BME280_CTRL_MEAS_MODE_Pos;
+
+  /* datasheet: both 0b01 and 0b10 are forced mode */
+  if (mode == BME280_MODE_FORCED_ALT) {
+    mode = BME280_MODE_FORCED;
+  }
+
+  *current_mode = (bme280_mode_t)mode;
+
+  return BME280_STATUS_CODE_OK;
+}
+
+
+bme280_status_t bme280_set_mode(bme280_dev *dev, bme280_mode_t target_mode)
+{
+  if (dev == NULL) {
+    return BME280_ERROR_NULL_PTR;
+  }
+
+  bme280_status_t status;
   uint8_t ctrl_meas = 0;
   uint8_t transition_cmd = 0;
   uint8_t sleep_cmd = 0;
 
   /* Read ctrl_meas reg: for mode, osrs_p, and osrs_t */
   if (dev->read(dev, BME280_CTRL_MEAS_ADDR, &ctrl_meas, 1)) {
-    return BME280_ERROR_I2C_READ;
+    return BME280_ERROR_INTF_READ;
   }
   
-  uint8_t current_mode = ctrl_meas & BME280_CTRL_MEAS_MODE_Msk;
+  /* grab mode value from ctrl_meas reg*/
+  uint8_t mode = (ctrl_meas & BME280_CTRL_MEAS_MODE_Msk) >> BME280_CTRL_MEAS_MODE_Pos;
 
+  if (mode == BME280_MODE_FORCED_ALT) {
+    mode = BME280_MODE_FORCED;
+  }
+
+  bme280_mode_t current_mode = (bme280_mode_t)mode;
+
+  /* Check if target mode matches current mode */
   if (target_mode == current_mode) {
     return BME280_STATUS_CODE_OK; // same mode
   }
 
   /* BME280 needs to be in sleep mode to write cfg */
   if (current_mode != BME280_MODE_SLEEP) {
-    /* transition cmd to set to sleep mode depending if 
-     * it's normal mode or forced mode */
-    sleep_cmd = ((current_mode == BME280_MODE_NORMAL) ?
-                  BME280_MODE_NORMAL_TO_SLEEP :
-                  BME280_MODE_FORCED_TO_SLEEP) &
-                  BME280_CTRL_MEAS_MODE_Msk;
-    
-    /* retain osrs_t<7:5> & osrs_p<4:2> */
-    sleep_cmd |= (ctrl_meas >> 2) << 2;
-    
+    /* mode<1:0> = sleep, retain osrs_t<7:5> & osrs_p<4:2> */
+    sleep_cmd = BME280_MODE_SLEEP | ((ctrl_meas >> 2) << 2);
+
     // Write to ctrl_meas reg to transition modes to sleep mode
     if (dev->write(dev, BME280_CTRL_MEAS_ADDR, &sleep_cmd, 1)) {
-      return BME280_ERROR_I2C_WRITE;
+      return BME280_ERROR_INTF_WRITE;
     }
 
-    /* Set current mode to sleep */
-    current_mode = BME280_MODE_SLEEP;
-  }
-  
-  /* return since we put mode to sleep */
-  if (target_mode == BME280_MODE_SLEEP) {
-    dev->cfg.mode = BME280_MODE_SLEEP;
-    return BME280_STATUS_CODE_OK;
+    /* Wait for sleep write to execute or else register writes will be ignored */
+    status = bme280_wait_idle(dev);
+    if (status != BME280_STATUS_CODE_OK) {
+      return status;
+    }
+
+    /* Return if target mode matches sleep mode since we
+     * put BME280 in sleep mode */
+    if (target_mode == BME280_MODE_SLEEP) {
+      return BME280_STATUS_CODE_OK;
+    }
   }
 
-  transition_cmd = ((target_mode == BME280_MODE_NORMAL) ?
-                     BME280_MODE_SLEEP_TO_NORMAL :
-                     BME280_MODE_SLEEP_TO_FORCED) &
-                     BME280_CTRL_MEAS_MODE_Msk;
-  transition_cmd |= (ctrl_meas >> 2) << 2;
+  /* mode<1:0> = target mode, retain osrs_t<7:5> & osrs_p<4:2> */
+  transition_cmd = (target_mode & BME280_CTRL_MEAS_MODE_Msk) |
+                   ((ctrl_meas >> 2) << 2);
 
   /* Wait for measurement to clear before write */
-  bme280_status_t status = bme280_wait_idle(dev);
+  status = bme280_wait_idle(dev);
   if (status != BME280_STATUS_CODE_OK) {
     return status;
   }
   
   // Write transition cmd to ctrl_meas reg to change to targeted mode
   if (dev->write(dev, BME280_CTRL_MEAS_ADDR, &transition_cmd, 1)) {
-    return BME280_ERROR_I2C_WRITE;
+    return BME280_ERROR_INTF_WRITE;
   }
 
-  dev->cfg.mode = target_mode;
   return BME280_STATUS_CODE_OK;
 }
 
@@ -236,89 +338,85 @@ bme280_status_t bme280_set_mode(bme280_dev *dev, uint8_t target_mode)
 /**
  * @brief Reads calibration data for compensation formulas
  * 
- * @param[out] dev : contains I2C handler
- * @param[out] calib_data : Contains the calibration constants for compensation formulas
+ * @param[out] dev : contains I2C handler and calibration data
+ * 
+ * @return Result of execution status
  */
 static bme280_status_t bme280_read_calib_data(bme280_dev *dev)
 {
   uint8_t c_buf1[BME280_C_DATA1_BUF_SIZE];
   uint8_t c_buf2[BME280_C_DATA2_BUF_SIZE];
 
-  bme280_status_t status = dev->read(dev, BME280_C_DATA1_ADDR_START, c_buf1, BME280_C_DATA1_BUF_SIZE);
-  if (status != BME280_STATUS_CODE_OK) {
-    return status;
+  /* Read calibration data batch 1 */
+  if (dev->read(dev, BME280_C_DATA1_ADDR_START, c_buf1, BME280_C_DATA1_BUF_SIZE)) {
+    return BME280_ERROR_INTF_READ;
   }
 
-  status = dev->read(dev, BME280_C_DATA2_ADDR_START, c_buf2, BME280_C_DATA2_BUF_SIZE);
-  if (status != BME280_STATUS_CODE_OK) {
-    return status;
+  /* Read calibration data batch 2 */
+  if (dev->read(dev, BME280_C_DATA2_ADDR_START, c_buf2, BME280_C_DATA2_BUF_SIZE)) {
+    return BME280_ERROR_INTF_READ;
   }
 
   /* Define calibration data for c_buf1 */
-  dev->calib_data->dig_T1 = (uint16_t)(((uint16_t)c_buf1[1] << 8u) | c_buf1[0]);
-  dev->calib_data->dig_T2 = (int16_t)(((uint16_t)c_buf1[3] << 8u) | c_buf1[2]);
-  dev->calib_data->dig_T3 = (int16_t)(((uint16_t)c_buf1[5] << 8u) | c_buf1[4]);
+  dev->calib_data.dig_T1 = (uint16_t)(((uint16_t)c_buf1[1] << 8u) | c_buf1[0]);
+  dev->calib_data.dig_T2 = (int16_t)(((uint16_t)c_buf1[3] << 8u) | c_buf1[2]);
+  dev->calib_data.dig_T3 = (int16_t)(((uint16_t)c_buf1[5] << 8u) | c_buf1[4]);
 
-  dev->calib_data->dig_P1 = (uint16_t)(((uint16_t)c_buf1[7] << 8u) | c_buf1[6]);
-  dev->calib_data->dig_P2 = (int16_t)(((uint16_t)c_buf1[9] << 8u) | c_buf1[8]);
-  dev->calib_data->dig_P3 = (int16_t)(((uint16_t)c_buf1[11] << 8u) | c_buf1[10]);
-  dev->calib_data->dig_P4 = (int16_t)(((uint16_t)c_buf1[13] << 8u) | c_buf1[12]);
-  dev->calib_data->dig_P5 = (int16_t)(((uint16_t)c_buf1[15] << 8u) | c_buf1[14]);
-  dev->calib_data->dig_P6 = (int16_t)(((uint16_t)c_buf1[17] << 8u) | c_buf1[16]);
-  dev->calib_data->dig_P7 = (int16_t)(((uint16_t)c_buf1[19] << 8u) | c_buf1[18]);
-  dev->calib_data->dig_P8 = (int16_t)(((uint16_t)c_buf1[21] << 8u) | c_buf1[20]);
-  dev->calib_data->dig_P9 = (int16_t)(((uint16_t)c_buf1[23] << 8u) | c_buf1[22]);
+  dev->calib_data.dig_P1 = (uint16_t)(((uint16_t)c_buf1[7] << 8u) | c_buf1[6]);
+  dev->calib_data.dig_P2 = (int16_t)(((uint16_t)c_buf1[9] << 8u) | c_buf1[8]);
+  dev->calib_data.dig_P3 = (int16_t)(((uint16_t)c_buf1[11] << 8u) | c_buf1[10]);
+  dev->calib_data.dig_P4 = (int16_t)(((uint16_t)c_buf1[13] << 8u) | c_buf1[12]);
+  dev->calib_data.dig_P5 = (int16_t)(((uint16_t)c_buf1[15] << 8u) | c_buf1[14]);
+  dev->calib_data.dig_P6 = (int16_t)(((uint16_t)c_buf1[17] << 8u) | c_buf1[16]);
+  dev->calib_data.dig_P7 = (int16_t)(((uint16_t)c_buf1[19] << 8u) | c_buf1[18]);
+  dev->calib_data.dig_P8 = (int16_t)(((uint16_t)c_buf1[21] << 8u) | c_buf1[20]);
+  dev->calib_data.dig_P9 = (int16_t)(((uint16_t)c_buf1[23] << 8u) | c_buf1[22]);
 
-  dev->calib_data->dig_H1 = c_buf1[25]; /* skip 0xA0 since dig_H1 is at 0xA1 */
+  dev->calib_data.dig_H1 = c_buf1[25]; /* skip 0xA0 since dig_H1 is at 0xA1 */
 
   /* Define calibration data for c_buf2 */
-  dev->calib_data->dig_H2 = (int16_t)(((uint16_t)c_buf2[1] << 8u) | c_buf2[0]);
-  dev->calib_data->dig_H3 = (uint8_t)c_buf2[2];
-  dev->calib_data->dig_H4 = (int16_t)(((uint16_t)c_buf2[3] << 4u) | (c_buf2[4] & BME280_DIG_H4_LSB_Msk));
-  dev->calib_data->dig_H5 = (int16_t)(((uint16_t)c_buf2[5] << 4u) | (c_buf2[4] >> 4u));
-  dev->calib_data->dig_H6 = (int8_t)c_buf2[6];
+  dev->calib_data.dig_H2 = (int16_t)(((uint16_t)c_buf2[1] << 8u) | c_buf2[0]);
+  dev->calib_data.dig_H3 = (uint8_t)c_buf2[2];
+  dev->calib_data.dig_H4 = ((int16_t)(int8_t)c_buf2[3] << 4) | (c_buf2[4] & BME280_DIG_H4_LSB_Msk);
+  dev->calib_data.dig_H5 = ((int16_t)(int8_t)c_buf2[5] << 4) | (c_buf2[4] >> 4u);
+  dev->calib_data.dig_H6 = (int8_t)c_buf2[6];
 
   return BME280_STATUS_CODE_OK;
 }
+
 
 /**
- * @brief Reads current cfg values and appends to dev->cfg
+ * @brief Initializes default values for cfg
  * 
- * @param[out] dev : Passes dev to collect current cfg values from BME280
+ * @param[in] dev : Access cfg struct pointer
+ * 
+ * @return Result of execution status
  */
-static bme280_status_t bme280_read_cfg(bme280_dev *dev)
+static bme280_status_t bme280_cfg_init(bme280_dev *dev)
 {
-  /* 0xF2 -> 0xF5 , 4 bytes */
-  uint8_t raw[BME280_CFG_LEN];
-  if (dev->read(dev, BME280_CFG_ADDR_START, raw, BME280_CFG_LEN)) {
-    return BME280_ERROR_I2C_READ; // I2C read error
+  /* Set default cfg values */
+  dev->cfg = (bme280_cfg){
+    .osrs_h  = BME280_HUMIDITY_OS_1,
+    .osrs_p = BME280_PRESSURE_OS_1,
+    .osrs_t = BME280_TEMPERATURE_OS_1,
+    .t_sb        = BME280_STANDBY_500_MS,
+    .filter      = BME280_FILTER_COEFF_2,
+  };
+
+  /* Write cfg to BME280*/
+  bme280_status_t status = bme280_write_cfg(dev);
+  if (status != BME280_STATUS_CODE_OK) {
+    return status;
   }
-
-  /* raw[0] = ctrl_hum */
-  dev->cfg.os_hum_cfg  = (raw[0] & BME280_CTRL_HUM_OSRS_H_Msk) >> 
-                      BME280_CTRL_HUM_OSRS_H_Pos;
-
-  /* raw[1] = status - nothing for cfg */
-
-  /* raw[2] = ctrl_meas */
-  dev->cfg.mode        = (raw[2] & BME280_CTRL_MEAS_MODE_Msk) >> 
-                      BME280_CTRL_MEAS_MODE_Pos;
-  dev->cfg.os_pres_cfg = (raw[2] & BME280_CTRL_MEAS_OSRS_P_Msk) >> 
-                      BME280_CTRL_MEAS_OSRS_P_Pos;
-  dev->cfg.os_temp_cfg = (raw[2] & BME280_CTRL_MEAS_OSRS_T_Msk) >> 
-                      BME280_CTRL_MEAS_OSRS_T_Pos;
-
-  /* raw[3] = config */
-  dev->cfg.filter      = (raw[3] & BME280_CONFIG_FILTER_Msk) >> 
-                      BME280_CONFIG_FILTER_Pos;
-  dev->cfg.t_sb        = (raw[3] & BME280_CONFIG_T_SB_Msk) >>
-                      BME280_CONFIG_T_SB_Pos;
 
   return BME280_STATUS_CODE_OK;
 }
+
 
 /**
  * @brief Writes cfg to BME280
+ * 
+ * // TODO: Write description here
  * 
  * @param[in] dev : Contains cfg used to write to BME280
  * 
@@ -326,43 +424,61 @@ static bme280_status_t bme280_read_cfg(bme280_dev *dev)
  */
 static bme280_status_t bme280_write_cfg(bme280_dev *dev)
 {
+  /* Check if temperature is enabled, which is needed for pressure and humidity */
+  if (dev->cfg.osrs_t == BME280_TEMPERATURE_OS_SKIP &&
+     (dev->cfg.osrs_p != BME280_PRESSURE_OS_SKIP ||
+      dev->cfg.osrs_h  != BME280_HUMIDITY_OS_SKIP)) {
+    return BME280_ERROR_TEMP_REQUIRED; /* can't skip temperature since it's used
+                                        * to calculate pressure and humidity . */
+  }
+
+  /* Read current mode to save state after writing in sleep mode */
+  bme280_mode_t current_mode;
+  bme280_status_t status = bme280_read_mode(dev, &current_mode);
+  if (status != BME280_STATUS_CODE_OK) {
+    return status;
+  }
+
+  /* Defines values for each register using masks and bit shifting
+   * Some registers hold multiple values */
   uint8_t spi_enabled = (dev->intf_handle.intf_type == BME280_SPI_ENABLED) ? 1 : 0;
-  uint8_t ctrl_hum = dev->cfg.os_hum_cfg & BME280_CTRL_HUM_OSRS_H_Msk;
-  uint8_t ctrl_meas = ((dev->cfg.os_temp_cfg << BME280_CTRL_MEAS_OSRS_T_Pos) & BME280_CTRL_MEAS_OSRS_T_Msk) |
-                      ((dev->cfg.os_pres_cfg << BME280_CTRL_MEAS_OSRS_P_Pos) & BME280_CTRL_MEAS_OSRS_P_Msk) |
-                      (dev->cfg.mode & BME280_CTRL_MEAS_MODE_Msk);
+  uint8_t ctrl_hum = dev->cfg.osrs_h & BME280_CTRL_HUM_OSRS_H_Msk;
+  uint8_t ctrl_meas = ((dev->cfg.osrs_t << BME280_CTRL_MEAS_OSRS_T_Pos) & BME280_CTRL_MEAS_OSRS_T_Msk) |
+                      ((dev->cfg.osrs_p << BME280_CTRL_MEAS_OSRS_P_Pos) & BME280_CTRL_MEAS_OSRS_P_Msk) |
+                      (BME280_MODE_SLEEP & BME280_CTRL_MEAS_MODE_Msk);
   uint8_t config = ((dev->cfg.t_sb << BME280_CONFIG_T_SB_Pos) & BME280_CONFIG_T_SB_Msk) |
                    ((dev->cfg.filter << BME280_CONFIG_FILTER_Pos) & BME280_CONFIG_FILTER_Msk) |
                    (spi_enabled & BME280_CONFIG_SPI3W_EN_Msk);
 
   /* config reg reliably accepts writes in sleep mode */
-  bme280_status_t status = bme280_set_mode(dev, BME280_MODE_SLEEP);
+  status = bme280_set_mode(dev, BME280_MODE_SLEEP);
   if (status != BME280_STATUS_CODE_OK) {
     return status;
   }
 
-  if (dev->cfg.os_temp_cfg == BME280_TEMPERATURE_OS_SKIP &&
-     (dev->cfg.os_pres_cfg != BME280_PRESSURE_OS_SKIP ||
-      dev->cfg.os_hum_cfg  != BME280_HUMIDITY_OS_SKIP)) {
-    return BME280_ERROR_TEMP_REQUIRED; /* can't skip temperature since it's used
-                                        * to calculate pressure and humidity . */
-  }
-
+  /* Write config to registers while in sleep mode */
   if (dev->write(dev, BME280_CONFIG_ADDR, &config, 1)) {
-    return BME280_ERROR_I2C_WRITE;
+    return BME280_ERROR_INTF_WRITE;
   }
 
   /* ctrl_hum must be before ctrl_meas for writing */
   if (dev->write(dev, BME280_CTRL_HUM_ADDR, &ctrl_hum, 1)) {
-    return BME280_ERROR_I2C_WRITE;
+    return BME280_ERROR_INTF_WRITE;
   }
 
   if (dev->write(dev, BME280_CTRL_MEAS_ADDR, &ctrl_meas, 1)) {
-    return BME280_ERROR_I2C_WRITE;
+    return BME280_ERROR_INTF_WRITE;
+  }
+
+  /* Revert back to previous mode */
+  status = bme280_set_mode(dev, current_mode);
+  if (status != BME280_STATUS_CODE_OK) {
+    return status;
   }
 
   return BME280_STATUS_CODE_OK;
 }
+
 
 /**
  * @brief Reads chip id and checks if chip id matches BME280_CHIP_ID
@@ -377,7 +493,7 @@ static bme280_status_t bme280_read_id(bme280_dev *dev)
 
   /* Read chip-id */
   if (dev->read(dev, BME280_CHIP_ID_ADDR, &chip_id, 1)) {
-    return BME280_ERROR_I2C_READ;
+    return BME280_ERROR_INTF_READ;
   }
 
   /* chip_id does not match BME280's chip id: 0x60 */
@@ -385,8 +501,10 @@ static bme280_status_t bme280_read_id(bme280_dev *dev)
     return BME280_ERROR_CHIP_ID;
   }
 
+  dev->chip_id = chip_id;
   return BME280_STATUS_CODE_OK;
 }
+
 
 /**
  * @brief Checks if the results have been transferred to the data registers
@@ -402,14 +520,14 @@ static bme280_status_t bme280_wait_idle(bme280_dev *dev)
 
   for (uint16_t i = 0; i < BME280_MEAS_TIMEOUT_MS; i++) {
     if (dev->read(dev, BME280_STATUS_ADDR, &status, 1)) {
-      return BME280_ERROR_I2C_READ;
+      return BME280_ERROR_INTF_READ;
     }
 
     if (!(status & BME280_STATUS_MEASURING_Msk)) {
       return BME280_STATUS_CODE_OK;  /* idle -> done */
     }
 
-    HAL_Delay(1);
+    dev->delay(1);
   }
 
   return BME280_ERROR_TIMEOUT; /* timed out */
@@ -439,6 +557,7 @@ static int32_t bme280_compensate_T_int32(const bme280_calib_data *c_data, int32_
   /* Return temperature */
   return ((*t_fine * 5 + 128) >> 8);
 }
+
 
 /**
  * @brief Calculate pressure using adc values and calibration data
@@ -481,6 +600,7 @@ static uint32_t bme280_compensate_P_int32(const bme280_calib_data *c_data, int32
 
   return p;
 }
+
 
 /**
  * @brief Calculate humidity using adc values, t_fine, and calibration data
@@ -525,10 +645,17 @@ static uint32_t bme280_compensate_H_int32(const bme280_calib_data *c_data, int32
  */
 static int8_t bme280_i2c_read_reg(bme280_dev *dev, uint16_t memAddress, uint8_t *buf, uint16_t len)
 {
-  return HAL_I2C_Mem_Read(dev->intf_handle.hi2c, dev->intf_handle.intf_addr,
-                          memAddress, I2C_MEMADD_SIZE_8BIT, 
-                          buf, len, HAL_MAX_DELAY);
+  HAL_StatusTypeDef status = HAL_I2C_Mem_Read(dev->intf_handle.hi2c, dev->intf_handle.intf_addr,
+                                              memAddress, I2C_MEMADD_SIZE_8BIT, 
+                                              buf, len, HAL_MAX_DELAY);
+  
+  if (status != HAL_OK) {
+    return 1;
+  }
+
+  return 0;
 }
+
 
 /**
  * @brief Writes to BME280 reg using HAL I2C write
@@ -542,9 +669,13 @@ static int8_t bme280_i2c_read_reg(bme280_dev *dev, uint16_t memAddress, uint8_t 
  */
 static int8_t bme280_i2c_write_reg(bme280_dev *dev, uint16_t memAddress, uint8_t *buf, uint16_t len)
 {
-  return HAL_I2C_Mem_Write(dev->intf_handle.hi2c, dev->intf_handle.intf_addr,
+  HAL_StatusTypeDef status = HAL_I2C_Mem_Write(dev->intf_handle.hi2c, dev->intf_handle.intf_addr,
                            memAddress, I2C_MEMADD_SIZE_8BIT,
                            buf, len, HAL_MAX_DELAY);
-}
 
-// TODO: ADD HAL_ERROR_MESSAGES
+  if (status != HAL_OK) {
+    return HAL_ERROR;
+  }
+
+  return HAL_OK;
+}
