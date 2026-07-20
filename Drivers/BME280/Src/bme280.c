@@ -416,7 +416,14 @@ static bme280_status_t bme280_cfg_init(bme280_dev *dev)
 /**
  * @brief Writes cfg to BME280
  * 
- * // TODO: Write description here
+ * It first returns if the temp os is skipped, because pressure
+ * and humidity rely on the temperature value t_fine. After checking
+ * osrs_t, it checks the current mode to save the value before setting
+ * to sleep mode to write the cfg values.
+ * 
+ * When writing to config, ctrl_meas, and ctrl_hum registers, it has to
+ * write in a specific order as stated from the datasheet. After writing
+ * the cfg values, it returns to recorded mode
  * 
  * @param[in] dev : Contains cfg used to write to BME280
  * 
@@ -609,7 +616,9 @@ static uint32_t bme280_compensate_P_int32(const bme280_calib_data *c_data, int32
  * @param[in] t_fine : Fine resolution temperature
  * @param[in] adc_H : Adc humidity data recorded from BME280 to record humidity
  * 
- * @return TODO: pg 25 for comment
+ * @return Humidity in %RH as unsigned 32 bit integer in Q22.10 format
+ *         (22 integer and 10 fractional bits). Output value of "88714"
+ *         equals 88714 / 1024 = 86.63 %RH. Refer to pg 25 of datasheet
  */
 static uint32_t bme280_compensate_H_int32(const bme280_calib_data *c_data, int32_t t_fine, int32_t adc_H)
 {

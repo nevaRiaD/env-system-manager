@@ -293,7 +293,7 @@ typedef struct bme280_cfg {
    * 
    * Note: Increasing oversampling increases latency
    */
-  uint8_t osrs_h;   /* Controls oversampling for humidity */
+  uint8_t osrs_h;  /* Controls oversampling for humidity */
   uint8_t osrs_p;  /* Controls oversampling for pressure */   
   uint8_t osrs_t;  /* Controls oversampling for temperature */
 
@@ -321,13 +321,42 @@ typedef struct bme280_cfg {
 } bme280_cfg;
 
 /**
- * @brief Contains data for pressure, temperature, and humidity
- * 
- * Addresses are based on BME280 memory map (pg 27)
+ * @brief Contains compensated data for pressure, temperature, and humidity
+ *
+ * These are *compensated* outputs, not raw ADC values. bme280_read_data()
+ * reads the raw registers at the addresses below and runs them through the
+ * integer compensation formulas from the datasheet (pg 25, 49-50), which
+ * apply the per-chip calibration constants in bme280_calib_data.
+ *
+ * Each field is a fixed-point integer, so divide by the scale factor below
+ * to get the physical value. Addresses are based on BME280 memory map (pg 27)
+ *
+ * Field       | Raw addr  | Raw bits | Unit          | Scale | Example
+ * ------------|-----------|----------|---------------|-------|------------------------
+ * pressure    | 0xF7-0xF9 | 20 bits  | Pa            | 1     | 94839  -> 948.39 hPa
+ * temperature | 0xFA-0xFC | 20 bits  | 0.01 DegC     | 100   | 4123   -> 41.23 DegC
+ * humidity    | 0xFD-0xFE | 16 bits  | %RH (Q22.10)  | 1024  | 88714  -> 86.63 %RH
+ *
+ * Conversion examples:
+ *   float hPa     = data.pressure / 100.0f;
+ *   float degC    = data.temperature / 100.0f;
+ *   float percent = data.humidity / 1024.0f;
+ *
+ * @note A field is only updated if its oversampling is enabled in bme280_cfg;
+ *       a skipped channel leaves the previous value in place.
  */
-typedef struct bme280_data {    
+typedef struct bme280_data {
+  /* Pressure in Pa. Output of "94839" equals 94839 Pa = 948.39 hPa.
+   * Range 30000-110000 Pa (300-1100 hPa) */
   uint32_t pressure;        /* addr: 0xF7, bit-format: 20 bits */
+
+  /* Temperature in DegC, resolution 0.01 DegC. Output of "4123" equals
+   * 41.23 DegC. Signed: -4000 equals -40.00 DegC. Range -40 to +85 DegC */
   int32_t temperature;      /* addr: 0xFA, bit-format: 20 bits */
+
+  /* Relative humidity in %RH as Q22.10 fixed point (10 fractional bits).
+   * Output of "88714" equals 88714 / 1024 = 86.63 %RH. Range 0-100 %RH,
+   * so the compensation clamps the value to a max of 102400 */
   uint32_t humidity;        /* addr: 0xFD, bit-format: 16 bits */
 } bme280_data;
 
