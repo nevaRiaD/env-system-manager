@@ -1,0 +1,6 @@
+# Store and check out every text file with LF endings.
+# STM32CubeMX regenerates Drivers/ and Core/ with CRLF on Windows; without this
+# the whole HAL shows up as modified after every regeneration.
+* text=auto eol=lf
+
+*.pdf binary
