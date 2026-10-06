@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include "bme280.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -47,6 +48,8 @@ I2C_HandleTypeDef hi2c1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+bme280_dev bme_dev;
+bme280_data bme_data;
 
 /* USER CODE END PV */
 
@@ -97,6 +100,12 @@ int main(void)
   MX_USART2_UART_Init();
   MX_CAN1_Init();
   /* USER CODE BEGIN 2 */
+
+  /* Initialize BME280 device in default (sleep mode) */
+  bme280_status_t bme_status = bme280_dev_init(&bme_dev, BME280_I2C_ENABLED, &hi2c1, BME280_MODE_DEFAULT);
+  if (bme_status != BME280_STATUS_CODE_OK) {
+    Error_Handler();
+  } 
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -106,6 +115,12 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    bme_status = bme280_read_data(&bme_dev, &bme_data);
+    if (bme_status != BME280_STATUS_CODE_OK) {
+      Error_Handler();
+    }
+    
+    HAL_Delay(1000);
   }
   /* USER CODE END 3 */
 }
