@@ -1,7 +1,13 @@
 #ifndef BME280_DEFS_H
 #define BME280_DEFS_H
 
+#include <stdint.h>
+#include "stm32f4xx_hal.h"
+
 #define BME280_MEAS_TIMEOUT_MS		  150
+
+/* Default mode when bme280_dev_init is called */
+#define BME280_MODE_DEFAULT         BME280_MODE_SLEEP
 
 /* 7-bit I2C address, selected by the SDO pin */
 #define BME280_I2C_ADDR_SDO_LOW     0x76u   /* SDO = GND   → 0b1110110 */
@@ -10,12 +16,23 @@
 /* Based on BME280 Data Sheet Memory Map (pg 27) */
 #define BME280_CFG_ADDR_START		    0xF2
 #define BME280_CFG_ADDR_END			    0xF5
-#define BME280_CFG_LEN				      4		    /* 4 bytes */
+#define BME280_CFG_LEN				      4u		  /* 4 bytes */
 
 #define BME280_DATA_ADDR_START		  0xF7
 #define BME280_DATA_ADDR_END		    0xFE
-#define BME280_DATA_LEN_HUM			    8		    /* 8 bytes: with humidity included */
-#define BME280_DATA_LEN_TEMP		    6		    /* 6 bytes: with humidity not included */
+#define BME280_DATA_LEN_HUM			    8u		  /* 8 bytes: with humidity included */
+#define BME280_DATA_LEN_TEMP		    6u		  /* 6 bytes: with humidity not included */
+
+#define BME280_C_DATA1_ADDR_START   0x88
+#define BME280_C_DATA1_ADDR_END     0xA1
+#define BME280_C_DATA1_BUF_SIZE     26u     /* 26 bytes */
+#define BME280_C_DATA2_ADDR_START   0xE1
+#define BME280_C_DATA2_ADDR_END     0xE7
+#define BME280_C_DATA2_BUF_SIZE     7u      /* 7 bytes */
+
+#define BME280_DIG_H4_LSB_Pos       0
+#define BME280_DIG_H4_LSB_Len       0x0Fu
+#define BME280_DIG_H4_LSB_Msk       (BME280_DIG_H4_LSB_Len << BME280_DIG_H4_LSB_Pos)
 
 /* ========== MEMORY MAP MACROS ========== */
 /* ===== HUM_LSB ===== */
@@ -127,16 +144,12 @@ typedef enum {
 } bme280_standby_t;
 
 typedef enum {
-  BME280_MODE_SLEEP_TO_NORMAL = 0b11,
-  BME280_MODE_SLEEP_TO_FORCED = 0b01,
-  BME280_MODE_FORCED_TO_SLEEP = 0b01,
-  BME280_MODE_NORMAL_TO_SLEEP = 0b00,
-} bme280_mode_transition_cmds_t;
-
-typedef enum {
   BME280_MODE_SLEEP  = 0b00,
   BME280_MODE_FORCED = 0b01,
   BME280_MODE_NORMAL = 0b11,
+
+  /* Alternative value of forced mode */
+  BME280_MODE_FORCED_ALT = 0b10,
 } bme280_mode_t;
 
 typedef enum {
@@ -166,23 +179,88 @@ typedef enum {
   BME280_HUMIDITY_OS_16   = 0b101,
 } bme280_osrs_h_t;
 
+/**
+ * @brief SPI/I2C Interface
+ */
 typedef enum {
-  BME280_SPI_ENABLED      = 0,
-  BME280_I2C_ENABLED      = 1,
-} bme280_spi_or_i2c_t;
+  BME280_INTF_NONE        = 0,  /* unset → caught by default: in init */
+  BME280_SPI_ENABLED      = 1,
+  BME280_I2C_ENABLED      = 2,
+} bme280_intf_t;
 
 typedef enum {
-  BME280_STATUS_CODE_OK      =  0,
-  BME280_ERROR_NULL_PTR      = -1,
-  BME280_ERROR_INVALID_LEN   = -2,
-  BME280_ERROR_I2C_READ      = -3,
-  BME280_ERROR_I2C_WRITE     = -4,
-  BME280_ERROR_CHIP_ID       = -5,
-  BME280_ERROR_TIMEOUT       = -6,
-  BME280_ERROR_TEMP_REQUIRED = -7,
+  BME280_STATUS_CODE_OK        =  0,
+  BME280_ERROR_NULL_PTR        = -1,
+  BME280_ERROR_INVALID_LEN     = -2,
+  BME280_ERROR_INTF_READ       = -3,
+  BME280_ERROR_INTF_WRITE      = -4,
+  BME280_ERROR_CHIP_ID         = -5,
+  BME280_ERROR_TIMEOUT         = -6,
+  BME280_ERROR_TEMP_REQUIRED   = -7,
+  BME280_ERROR_SPI_NOT_ENABLED = -8,
+  BME280_ERROR_I2C_NOT_ENABLED = -9,
+  BME280_ERROR_INTF_REQUIRED   = -10,
+  BME280_ERROR_MODE_UNKNOWN    = -11,
 } bme280_status_t;
 
 /* ========== STRUCTS ========== */
+
+typedef struct {
+  bme280_intf_t intf_type;
+
+  union {
+#ifdef HAL_SPI_MODULE_ENABLED
+    SPI_HandleTypeDef *hspi;
+#endif
+#ifdef HAL_I2C_MODULE_ENABLED
+    I2C_HandleTypeDef *hi2c;
+#endif
+  };
+
+  uint16_t intf_addr;
+} bme280_intf_handle;
+
+/* Forward declaration of bme280_dev */
+typedef struct bme280_dev bme280_dev;
+
+/**
+ * @brief Interface function pointer
+ */
+typedef int8_t (*bme280_intf_fptr_t)(bme280_dev *dev, uint16_t memAddress, uint8_t *buf, uint16_t len);
+
+/**
+ * @brief Delay function pointer
+ */
+typedef void (*bme280_delay_fptr_t)(uint32_t delay_ms);
+
+/**
+ * @brief Calibration data
+ */
+typedef struct bme280_calib_data {
+  /* Temperature */
+  uint16_t dig_T1;  /* addr: 0x88/0x89      , content: [7:0]/[15:8] */
+  int16_t  dig_T2;  /* addr: 0x8A/0x8B      , content: [7:0]/[15:8] */
+  int16_t  dig_T3;  /* addr: 0x8C/0x8D      , content: [7:0]/[15:8] */
+
+  /* Pressure */
+  uint16_t dig_P1;  /* addr: 0x8E/0x8F      , content: [7:0]/[15:8] */
+  int16_t  dig_P2;  /* addr: 0x90/0x91      , content: [7:0]/[15:8] */
+  int16_t  dig_P3;  /* addr: 0x92/0x93      , content: [7:0]/[15:8] */
+  int16_t  dig_P4;  /* addr: 0x94/0x95      , content: [7:0]/[15:8] */
+  int16_t  dig_P5;  /* addr: 0x96/0x97      , content: [7:0]/[15:8] */
+  int16_t  dig_P6;  /* addr: 0x98/0x99      , content: [7:0]/[15:8] */
+  int16_t  dig_P7;  /* addr: 0x9A/0x9B      , content: [7:0]/[15:8] */
+  int16_t  dig_P8;  /* addr: 0x9C/0x9D      , content: [7:0]/[15:8] */
+  int16_t  dig_P9;  /* addr: 0x9E/0x9F      , content: [7:0]/[15:8] */
+
+  /* Humidity */
+  uint8_t  dig_H1;  /* addr: 0xA1           , content: [7:0]        */
+  int16_t  dig_H2;  /* addr: 0xE1/0xE2      , content: [7:0]/[15:8] */
+  uint8_t  dig_H3;  /* addr: 0xE3           , content: [7:0]        */
+  int16_t  dig_H4;  /* addr: 0xE4/0xE5[3:0] , content: [11:4]/[3:0] */
+  int16_t  dig_H5;  /* addr: 0xE5[7:4]/0xE6 , content: [3:0]/[11:4] */
+  int8_t   dig_H6;  /* addr: 0xE7           , content: [8:0]        */
+} bme280_calib_data;
 
 /**
  * @brief Contains config data from memory map for bme280
@@ -203,7 +281,7 @@ typedef struct bme280_cfg {
    *                            an active measurement period and
    *                            an inactive measurement period.
    */
-  uint8_t mode; /* Power Settings for mode */
+  // uint8_t mode; /* Power Settings for mode */
 
   /* Oversampling Config
    * 0b000:  Skipped (output set to 0x80000)
@@ -215,9 +293,9 @@ typedef struct bme280_cfg {
    * 
    * Note: Increasing oversampling increases latency
    */
-  uint8_t os_hum_cfg;   /* Controls oversampling for humidity */
-  uint8_t os_pres_cfg;  /* Controls oversampling for pressure */   
-  uint8_t os_temp_cfg;  /* Controls oversampling for temperature */
+  uint8_t osrs_h;  /* Controls oversampling for humidity */
+  uint8_t osrs_p;  /* Controls oversampling for pressure */   
+  uint8_t osrs_t;  /* Controls oversampling for temperature */
 
   /* t_sb Config
    * 0b000: 0.5 ms
@@ -240,24 +318,73 @@ typedef struct bme280_cfg {
    * 0b100: Filter Coefficient = 16
    */
   uint8_t filter;   /* Controls time constant of the IIR filter */
-
-  bme280_spi_or_i2c_t spi_enabled; /* Enables 3-wire SPI interface when set to ‘1’ */
-  
-  /* ===== USER CONFIG ===== */
-  
-  I2C_HandleTypeDef *hi2c;  /* Handle for STM32 HAL H2C */
-  uint16_t i2c_address;     /* Select based SDO_LOW or SDO_HIGH */
 } bme280_cfg;
 
 /**
- * @brief Contains data for pressure, temperature, and humidity
- * 
- * Addresses are based on BME280 memory map (pg 27)
+ * @brief Contains compensated data for pressure, temperature, and humidity
+ *
+ * These are *compensated* outputs, not raw ADC values. bme280_read_data()
+ * reads the raw registers at the addresses below and runs them through the
+ * integer compensation formulas from the datasheet (pg 25, 49-50), which
+ * apply the per-chip calibration constants in bme280_calib_data.
+ *
+ * Each field is a fixed-point integer, so divide by the scale factor below
+ * to get the physical value. Addresses are based on BME280 memory map (pg 27)
+ *
+ * Field       | Raw addr  | Raw bits | Unit          | Scale | Example
+ * ------------|-----------|----------|---------------|-------|------------------------
+ * pressure    | 0xF7-0xF9 | 20 bits  | Pa            | 1     | 94839  -> 948.39 hPa
+ * temperature | 0xFA-0xFC | 20 bits  | 0.01 DegC     | 100   | 4123   -> 41.23 DegC
+ * humidity    | 0xFD-0xFE | 16 bits  | %RH (Q22.10)  | 1024  | 88714  -> 86.63 %RH
+ *
+ * Conversion examples:
+ *   float hPa     = data.pressure / 100.0f;
+ *   float degC    = data.temperature / 100.0f;
+ *   float percent = data.humidity / 1024.0f;
+ *
+ * @note A field is only updated if its oversampling is enabled in bme280_cfg;
+ *       a skipped channel leaves the previous value in place.
  */
-typedef struct bme280_data {    
+typedef struct bme280_data {
+  /* Pressure in Pa. Output of "94839" equals 94839 Pa = 948.39 hPa.
+   * Range 30000-110000 Pa (300-1100 hPa) */
   uint32_t pressure;        /* addr: 0xF7, bit-format: 20 bits */
+
+  /* Temperature in DegC, resolution 0.01 DegC. Output of "4123" equals
+   * 41.23 DegC. Signed: -4000 equals -40.00 DegC. Range -40 to +85 DegC */
   int32_t temperature;      /* addr: 0xFA, bit-format: 20 bits */
+
+  /* Relative humidity in %RH as Q22.10 fixed point (10 fractional bits).
+   * Output of "88714" equals 88714 / 1024 = 86.63 %RH. Range 0-100 %RH,
+   * so the compensation clamps the value to a max of 102400 */
   uint32_t humidity;        /* addr: 0xFD, bit-format: 16 bits */
 } bme280_data;
+
+
+/**
+ * @brief Device structure
+ */
+typedef struct bme280_dev {
+  /* Chip ID */
+  uint8_t chip_id;
+
+  /* SPI/I2C Interface handle */
+  bme280_intf_handle intf_handle;
+
+  /* Read function pointer */
+  bme280_intf_fptr_t read;
+
+  /* Write function pointer */
+  bme280_intf_fptr_t write;
+
+  /* Delay function pointer */
+  bme280_delay_fptr_t delay;
+
+  /* Calibration data */
+  bme280_calib_data calib_data;
+
+  /* Sensor config */
+  bme280_cfg cfg;
+} bme280_dev;
 
 #endif // BME280_DEFS_H
